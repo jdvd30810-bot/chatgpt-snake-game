@@ -1,5 +1,7 @@
 # 复刻ChatGPT生图时的贪吃蛇小游戏
 
+🎮 **在线试玩：** https://jdvd30810-bot.github.io/chatgpt-snake-game/
+
 ChatGPT 生成图片时，等待界面上那条点阵小蛇，用一个 HTML 文件复刻出来，可以真的玩。
 
 <img src="screenshot.png" alt="游戏截图" width="300">
