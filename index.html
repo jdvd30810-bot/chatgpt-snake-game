@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Snake</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#aaa;font-family:-apple-system,system-ui,sans-serif;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  #wrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+  #label{align-self:flex-start;margin-left:calc(50% - min(45vw,190px));font-size:17px;color:#bbb}
+  canvas{display:block;cursor:pointer}
+  #score{font-size:13px;color:#666;height:16px}
+  #colors{position:fixed;top:12px;right:12px;display:flex;gap:8px}
+  #colors b{width:16px;height:16px;border-radius:50%;cursor:pointer;opacity:.8}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="label">Creating image</div>
+  <canvas id="c"></canvas>
+  <div id="score"></div>
+</div>
+<div id="colors"></div>
+<script>
+const COLS=15, ROWS=19, STEP_MS=200;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const scoreEl=document.getElementById('score'), labelEl=document.getElementById('label');
+let accent=localStorage.snakeColor||'#ef6fae', cell, dpr;
+let light=localStorage.snakeLight==='1';
+function applyTheme(){document.body.style.background=light?'#fff':'#000';}
+// [蛇颜色, 是否白底]
+[['#ef6fae',0],['#3b82f6',0],['#22c55e',0],['#f59e0b',0],['#a855f7',0],['#e5e5e5',0],['#111',1]].forEach(([c,l])=>{
+  const b=document.createElement('b');b.style.background=c;if(l)b.style.outline='2px solid #888';
+  b.onclick=()=>{accent=c;light=!!l;localStorage.snakeColor=c;localStorage.snakeLight=l?'1':'0';applyTheme()};
+  document.getElementById('colors').appendChild(b);
+});
+applyTheme();
+
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  cell=Math.floor(Math.min(innerWidth*0.9/COLS, innerHeight*0.7/ROWS, 26));
+  cv.style.width=COLS*cell+'px'; cv.style.height=ROWS*cell+'px';
+  cv.width=COLS*cell*dpr; cv.height=ROWS*cell*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize',resize); resize();
+
+// state: 'idle' (loading dots animation) | 'play' | 'over'
+let state='idle', snake, dir, queue, food, score, best=+localStorage.snakeBest||0, last=0, acc=0, eatPulse=0, overAt=0;
+
+function reset(){
+  const y=Math.floor(ROWS*0.6), x=Math.floor(COLS/2);
+  snake=[{x:x+1,y},{x,y},{x:x-1,y},{x:x-2,y},{x:x-3,y}];
+  dir={x:1,y:0}; queue=[]; score=0; placeFood(); acc=0;
+  scoreEl.textContent='0';
+}
+function placeFood(){
+  let p; do{p={x:Math.random()*COLS|0,y:Math.random()*ROWS|0}}while(snake.some(s=>s.x===p.x&&s.y===p.y));
+  food=p;
+}
+function turn(d){
+  if(state!=='play'){start();return;}
+  const ref=queue.length?queue[queue.length-1]:dir;
+  if(d.x===-ref.x&&d.y===-ref.y || d.x===ref.x&&d.y===ref.y) return;
+  if(queue.length<3) queue.push(d);
+}
+function start(){
+  if(state==='over' && performance.now()-overAt<400) return;
+  reset(); state='play'; labelEl.textContent='Creating image';
+}
+function tick(){
+  if(queue.length) dir=queue.shift();
+  const h={x:(snake[0].x+dir.x+COLS)%COLS,y:(snake[0].y+dir.y+ROWS)%ROWS}; // 穿墙
+  // 撞自己 = 结束（尾巴这一步会移走，所以不算）
+  const body=snake.slice(0, h.x===food.x&&h.y===food.y ? snake.length : snake.length-1);
+  if(body.some(s=>s.x===h.x&&s.y===h.y)){
+    state='over'; overAt=performance.now();
+    if(score>best){best=score;localStorage.snakeBest=best}
+    scoreEl.textContent=`${score} · 最高 ${best} · 点一下再来`;
+    return;
+  }
+  snake.unshift(h);
+  if(h.x===food.x&&h.y===food.y){score++;eatPulse=1;scoreEl.textContent=score;placeFood();}
+  else snake.pop();
+}
+
+function dot(x,y,r,a){ctx.globalAlpha=a;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+function cx(i){return i*cell+cell/2}
+
+function draw(t){
+  ctx.clearRect(0,0,COLS*cell,ROWS*cell);
+  // 背景点阵
+  ctx.fillStyle=light?'#000':'#fff';
+  const occ=new Set(state==='idle'?[]:[...snake,food].map(p=>p.x+','+p.y));
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(!occ.has(x+','+y))dot(cx(x),cx(y),Math.max(1.5,cell*0.07),0.4);
+  ctx.fillStyle=accent;
+  if(state==='idle'){
+    // 开始前：一排静止的点
+    const n=5, y=ROWS/2|0, x0=(COLS-n)/2|0;
+    for(let i=0;i<n;i++) dot(cx(x0+i),cx(y),cell*0.3,1);
+    ctx.globalAlpha=1;return;
+  }
+  // 食物：游戏中呼吸式缩放（开始前和死后静止）
+  const fp=state==='play'?1+0.15*Math.sin(t/180):1;
+  dot(cx(food.x),cx(food.y),cell*0.3*fp,1);
+  // 蛇：头大，往尾巴渐小渐淡
+  const L=snake.length;
+  for(let i=L-1;i>=0;i--){
+    const k=L>1?i/(L-1):0;
+    const r=cell*(0.36-0.2*k)*(i===0?1+0.15*eatPulse:1);
+    dot(cx(snake[i].x),cx(snake[i].y),r,1-0.45*k);
+  }
+  // 眼睛
+  const h=snake[0], hx=cx(h.x), hy=cx(h.y), ex=-dir.y*cell*0.12, ey=dir.x*cell*0.12, fx=dir.x*cell*0.08, fy=dir.y*cell*0.08;
+  const eye=light?'#fff':'#000'; ctx.fillStyle=eye; ctx.globalAlpha=1;
+  if(state==='over'){ // 死了：两只 × 眼
+    const a=cell*0.06; ctx.strokeStyle=eye; ctx.lineWidth=Math.max(1.2,cell*0.045); ctx.lineCap='round';
+    for(const sgn of [1,-1]){const x=hx+sgn*ex+fx, y=hy+sgn*ey+fy; ctx.beginPath();
+      ctx.moveTo(x-a,y-a);ctx.lineTo(x+a,y+a);ctx.moveTo(x+a,y-a);ctx.lineTo(x-a,y+a);ctx.stroke();}
+  } else { dot(hx+ex+fx,hy+ey+fy,cell*0.055,1); dot(hx-ex+fx,hy-ey+fy,cell*0.055,1); }
+  ctx.globalAlpha=1;
+  if(state==='over'){ctx.fillStyle=light?'rgba(255,255,255,.35)':'rgba(0,0,0,.35)';ctx.fillRect(0,0,COLS*cell,ROWS*cell);}
+}
+
+function loop(t){
+  const dt=Math.min(t-last,100); last=t;
+  if(state==='play'){acc+=dt; while(acc>=STEP_MS&&state==='play'){acc-=STEP_MS;tick();}}
+  eatPulse=Math.max(0,eatPulse-dt/200);
+  draw(t); requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// 键盘
+const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0]};
+addEventListener('keydown',e=>{const k=KEYS[e.key]||KEYS[e.key.toLowerCase()];
+  if(k){e.preventDefault();turn({x:k[0],y:k[1]});} else if(e.key===' '||e.key==='Enter'){if(state!=='play')start();}});
+// 点击开始、滑动转向
+let t0=null;
+addEventListener('pointerdown',e=>{t0={x:e.clientX,y:e.clientY,moved:false}});
+addEventListener('pointermove',e=>{
+  if(!t0||t0.moved)return; const dx=e.clientX-t0.x, dy=e.clientY-t0.y;
+  if(Math.hypot(dx,dy)<18)return;
+  t0.moved=true; turn(Math.abs(dx)>Math.abs(dy)?{x:Math.sign(dx),y:0}:{x:0,y:Math.sign(dy)});
+  t0={x:e.clientX,y:e.clientY,moved:false}; // 允许一次手势连续转向
+});
+addEventListener('pointerup',e=>{
+  if(t0&&!t0.moved&&e.target===cv&&state!=='play')start(); t0=null;
+});
+</script>
+</body>
+</html>
